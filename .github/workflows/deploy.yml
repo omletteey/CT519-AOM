@@ -11,7 +11,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -50,4 +50,32 @@ jobs:
         platforms: linux/amd64,linux/arm64
         push: true
         tags: ghcr.io/${{ env.OWN_LOWER }}/${{ env.REPO_NAME }}:backend-${{ steps.git-version.outputs.VERSION }}
+    outputs:
+      frontend_tag: ghcr.io/${{ env.OWN_LOWER }}/${{ env.REPO_NAME }}:front-${{ steps.git-version.outputs.VERSION }}
+      backend_tag: ghcr.io/${{ env.OWN_LOWER }}/${{ env.REPO_NAME }}:backend-${{ steps.git-version.outputs.VERSION }}
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      FRONTEND_TAG: ${{ needs.build.outputs.frontend_tag }}
+      BACKEND_TAG: ${{ needs.build.outputs.backend_tag }}
+    steps:
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: ${{ secrets.SERVER_PORT || 22 }}
+        script: |
+          cd /app/frontend
+          docker-compose down
+          yq -i '.services.backend.image = "${{ env.FRONTEND_TAG }}"' docker-compose.yml
+          docker-compose pull
+          docker-compose up -d
+          cd /app/backend
+          docker-compose down
+          yq -i '.services.frontend.image = "${{ env.BACKEND_TAG }}"' docker-compose.yml
+          docker-compose pull
+          docker-compose up -d
 
